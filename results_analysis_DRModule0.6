@@ -1,0 +1,562 @@
+
+!**************************************************************
+
+forward procedure write_DR_flexibility				
+forward procedure write_summary_dr
+forward procedure write_DR_shiftload
+forward procedure DR_output
+forward procedure write_generation_RESE
+forward procedure write_generation_ONWIND
+forward procedure print_DR_solution
+	
+
+							 
+
+!*******************************************************************************
+!****					 Procedures and functions							****
+!*******************************************************************************
+	
+declarations
+	!DSM
+	SHIFT_CLASSES 		: range; 
+	CURT_CLASSES 		: range; 
+	FLEX_CLASSES		: range;
+	
+	EUROPE_LOAD			:  array(SCENARIOS, YEARS, HOURS) of real; ! Load in eUROPE
+	PEAK_EUROPE			:  array(SCENARIOS, YEARS, SEASONS) of real; ! pEAK Load in eUROPE
+	NEW_EUROPE_LOAD		:  array(SCENARIOS, YEARS, HOURS) of real;
+	NEW_PEAK_EUROPE		:  array(SCENARIOS, YEARS, SEASONS) of real; ! pEAK Load in eUROPE
+		
+	!DSM solution containers
+	
+	
+	SH_LOAD		: 	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES)	of real; ! DR DSM Shiftable loads for each FLEXIBLE class
+	
+	SHCONST		: 	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES)	of real; 
+	CT_LOAD		: 	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES)		of real; ! DR DSM Curtailable loads for each CURTAILABLE class
+	INF_LOAD	:	array(SCENARIOS, YEARS, HOURS, NODES)					of real; ! TOTAL LOAD AFTER DR DSM
+	NEW_LOAD	:	array(SCENARIOS, YEARS, HOURS, NODES)					of real; ! TOTAL LOAD AFTER DR DSM
+	DELTA_LOAD	:	array(SCENARIOS, YEARS, HOURS, NODES)					of real; ! Gives the increase or decrease of LOAD AFTER DR DSM
+	ALPHA_SHIFT	:   array(SCENARIOS, HOURS, NODES, SHIFT_CLASSES) of real; ! Weight of each shiftable class.
+	ALPHA_CURT	: 	array(SCENARIOS, HOURS, NODES, CURT_CLASSES) of real; ! Weight of each shiftable class. They sum up to 1, last class is curtailable load.
+	DR_CAP		:	array(YEARS,NODES,FLEX_CLASSES) of real;
+	DR_CAP_INIT	:	array(NODES,FLEX_CLASSES) of real;
+	DR_CAP_POT	: 	array(NODES,FLEX_CLASSES) of real; !Potential DR capacities
+	MAX_DR_CAP	: 	array(NODES) of real;
+	DR_INV		:	array(YEARS,NODES,FLEX_CLASSES) of real;
+	DR_LIMIT	:	array(YEARS,NODES,FLEX_CLASSES) of real;
+	FLEXIBILITY :   array(YEARS, NODES) of real;
+	FLEXIBLE	: 	array(NODES) of real; 
+	LOAD_PEAK	: 	array(YEARS,NODES) of real;
+	NUM_DR		: 	range;
+	!TYPE_DR		: 	array(NUM_DR) of integer;
+	YEARS_STRING: 	string;
+	FLEX_STRING :	string;
+	SHIFT		: 	array(SHIFT_CLASSES) of integer;
+	CURT		: 	array(CURT_CLASSES) of integer;
+	days		: 	integer;
+	
+	
+end-declarations
+	
+	
+RESULTFILE_STATEMENT  	:= "zlib.gzip::" + RESULTFILE + ".gz";
+DATAFILE_STATEMENT 		:= "zlib.gzip::" + DATAFILE + ".gz";
+
+
+procedure DR_output
+	
+	read_DRdata_mosel_format;
+	read_DRresults_mosel_format;
+	write_DR_flexibility;
+	write_summary_dr;
+	print_DR_solution;
+	
+
+	if DETAILS>1 then
+		write_DR_shiftload;
+		write_solution_summary_per_country;
+		
+	end-if
+	
+end-procedure
+
+
+
+
+write("DR done!\n\n");
+
+
+!*******************************************************************************
+!****					 Procedures and functions							****
+!*******************************************************************************
+! Include utility functions (for functions declared in the beginning of the file)
+
+!-------------------------------------------------------------------------------------------
+! Read data to model
+!-------------------------------------------------------------------------------------------	
+!--- Textfile 
+procedure read_DRdata_mosel_format
+	writeln("Reading DR data",DATAFILE_STATEMENT);
+	initializations from DATAFILE_STATEMENT
+	!***Sets and arrays linking sets
+		
+		!DSM-read DR
+		SHIFT_CLASSES;
+		CURT_CLASSES;
+		FLEX_CLASSES;
+		
+		MAX_DR_CAP;
+		SHIFT;
+		CURT;
+		NUM_DR;
+		ALPHA_SHIFT;
+		ALPHA_CURT;
+		DR_CAP_POT;
+		
+			
+	end-initializations
+	
+
+end-procedure
+
+procedure read_DRresults_mosel_format
+	writeln("Reading DR results",RESULTFILE_STATEMENT);
+	initializations from RESULTFILE_STATEMENT
+			
+		!DSM-read
+		INF_LOAD;
+		NEW_LOAD;
+		DELTA_LOAD;
+		SH_LOAD;
+		
+		CT_LOAD;
+		SHCONST;
+		DR_CAP;
+		DR_INV;
+		DR_LIMIT;
+		FLEXIBILITY;
+		FLEXIBLE;
+		DR_CAP_INIT;
+		LOAD_PEAK;
+		!TYPE_DR;
+		
+  	end-initializations
+end-procedure
+
+
+
+
+
+!-------------------------------------------------------------------------------------------
+! Write DR / DSM-results
+!-------------------------------------------------------------------------------------------
+procedure write_DR_flexibility 
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_operation.csv", F_OUTPUT);
+		write("Country,Year,Scenario,Season,Total Shift, Average Shift, Max, Max Potential\n");
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, sea in SEASONS) do
+		!NEW_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)
+			aux := (sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) 1); !Number of hours in scenario scn
+			aux2:= sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DELTA_LOAD(scn,yy,hh,nn));
+			write(NODE_NAMES(nn,1));
+			write("," + yy); write(","+scn); write(","+sea);
+			write(",",aux2 ); !Total shifted load
+			write(",",aux2 / aux ); !Average increase/decrease of load
+			write("," + (max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DELTA_LOAD(scn,yy,hh,nn)) ) );
+			write("," + (max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn) ) );
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_classes.csv", F_OUTPUT);
+		aux3 := "Country,Year,Scenario,Season";
+		forall(ff in SHIFT_CLASSES) aux3:= aux3+","+"Shift"+ff;		
+		forall(ff in CURT_CLASSES) aux3:= aux3+","+"Curt"+ff;
+		writeln(aux3);
+		forall(scn in SCENARIOS, yy in YEARSH, nn in NODES, sea in SEASONS) do
+		!NEW_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)
+			write(scn); !write(NODE_NAMES(nn,1));
+			write("," + yy); write(","+nn); write(","+sea);
+			forall (ff in SHIFT_CLASSES) do 
+				aux:=SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff)); 
+				write(",",aux ); !Total shift from each class
+			end-do
+			forall (ff in CURT_CLASSES) do 
+				aux:=SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(CT_LOAD(scn,yy,hh,nn,ff));
+				write(",",aux ); !Total curt from each class
+			end-do
+		write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_avg_classes.csv", F_OUTPUT);
+		!Calculates how much have been shifted and curtailed each year on scenario average 
+		aux3 := "Year,Modified,Untouched";
+		writeln(aux3);
+		forall(yy in YEARSH) do
+		!NEW_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)
+			!write(NODE_NAMES(nn,1));
+			write(yy); 
+			aux:=1/SCENARIOS.size*sum(scn in SCENARIOS, sea in SEASONS, nn in NODES) 
+					SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*(
+					sum(ff in SHIFT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff))
+					+sum(ff in CURT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(CT_LOAD(scn,yy,hh,nn,ff))
+						); 
+			write(",",aux ); 
+			
+			aux:=1/SCENARIOS.size*sum(scn in SCENARIOS, sea in SEASONS, nn in NODES) 
+				SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*(
+				1/2*sum(ff in SHIFT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(SH_LOAD(scn,yy,hh,nn,ff))
+				+sum(ff in CURT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) (
+				 DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_CURT(scn,hh,nn,ff) - CT_LOAD(scn,yy,hh,nn,ff) )
+				);
+			write(",",aux ); 
+			
+		write("\n");
+		end-do
+	fclose(F_OUTPUT);
+		
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_newloads.csv", F_OUTPUT);
+		
+		declarations
+			SCENH: set of integer;
+			YEARSHH: set of integer;
+			NODESH: set of integer;
+			HOURSH: range;	
+		end-declarations
+		
+		
+		SCENH := {1,2,3};
+		YEARSHH := {3};
+		NODESH := {10};
+		HOURSH := HOURS;
+		write("Scenario,Year,Node,Hour,Original Load (MW), Inflexible (MW), New Load, Delta, Shifted, Supplied, Supplied2, Curtailable, % Flexible, Wind Production, Solar Production\n");
+		forall(scn in SCENH, yy in YEARSHH, nn in NODESH, hh in HOURS) do
+			write(scn); write("," + yy);  write(","+nn); write(","+hh);
+			write(","+ NODE_LOAD(scn,yy,hh,nn)); 
+			write(","+ INF_LOAD(scn,yy,hh,nn));
+			write(","+ NEW_LOAD(scn,yy,hh,nn)); 
+			write(","+ DELTA_LOAD(scn,yy,hh,nn)); !"Delta": Difference between Original and New Load
+			write(","+ sum(ff in SHIFT_CLASSES) (DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff))); !"Shifted" shift_delta
+			write(","+ FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn)-sum(ff in SHIFT_CLASSES) SH_LOAD(scn,yy,hh,nn,ff)); !"Supplied": Includes losses
+			write(","+ sum(ff in SHIFT_CLASSES) SH_LOAD(scn,yy,hh,nn,ff)); !"Supplied2": Shifted classes without losses
+			write(","+ sum(ff in CURT_CLASSES) CT_LOAD(scn,yy,hh,nn,ff)); !Curtailed classes without losses
+			if FLEXIBILITY(yy,nn) > 0 then
+				write(","+ DELTA_LOAD(scn,yy,hh,nn)/(FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn)));
+			end-if
+			write("," + sum(gg in GENERATORS | GEN_NODE(gg)=nn and TECH_WIND(GEN_TECH(gg))) GEN_PROD(scn,yy,hh,gg)); !solar
+			write("," + sum(gg in GENERATORS | GEN_NODE(gg)=nn and TECH_SOLAR(GEN_TECH(gg))) GEN_PROD(scn,yy,hh,gg)); !wind
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_classes_cap.csv", F_OUTPUT);
+		write("Year,Node, Flexible Class, DR Capacity, % Peak, DR Cap Dual \n");
+		forall(nn in NODES, ff in FLEX_CLASSES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write("0, "); write(nn); write("," + ff);  
+			write(","+ DR_CAP_INIT(nn,ff)); write(","+ DR_CAP_INIT(nn,ff)/LOAD_PEAK(1,nn));
+			write("\n");
+		end-do
+		forall(nn in NODES, yy in YEARSH, ff in FLEX_CLASSES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write(nn); write(", "+yy); write("," + ff);  
+			write(","+ DR_CAP(yy,nn,ff)); write(","+ DR_CAP(yy,nn,ff)/LOAD_PEAK(yy,nn));
+			write(","+ DR_LIMIT(yy,nn,ff));
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_binding.csv", F_OUTPUT);
+		forall (ff in FLEX_CLASSES) do FLEX_STRING := FLEX_STRING + ff +",";
+		end-do
+		writeln("Country-Year/Flex.,,"+FLEX_STRING);
+				
+		forall(nn in NODES, yy in YEARSH) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write(nn); write(", "+yy); 
+			forall(ff in FLEX_CLASSES) do write(","+ DR_LIMIT(yy,nn,ff)); 
+			end-do
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_capacity_class.csv", F_OUTPUT);
+		!forall (ff in FLEX_CLASSES) do FLEX_STRING := FLEX_STRING + ff +",";
+		!end-do
+		writeln("Country-Year/Capac.,,"+FLEX_STRING);
+				
+		forall(nn in NODES) do
+			write(nn); write(","+0);
+				forall(ff in FLEX_CLASSES) do write(","+ DR_CAP_INIT(nn,ff)); 
+				end-do
+				write("\n");
+			 forall(yy in YEARSH) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+				write(", "+yy); 
+				forall(ff in FLEX_CLASSES) do write(","+ DR_CAP(yy,nn,ff)); 
+				end-do
+				write("\n");
+			 end-do
+		end-do
+	fclose(F_OUTPUT);
+	
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_global.csv", F_OUTPUT);
+		write("Node,Year,Season, DR Capacity, Peak Load, % Peak, New Peak, %New Peak, %Capacity, Investments\n");
+		forall(nn in NODES, sea in SEASONS) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			aux:= sum(ff in FLEX_CLASSES) DR_CAP_INIT(nn,ff);
+			aux2:= max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) NODE_LOAD(1,1,hh,nn);
+			write(nn); write(",0 "); write(","+sea);   
+			write(","+ aux); 
+			write(","+ aux2);			
+			write(","+ aux/aux2);
+			!New Peak
+			aux2:= max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) NEW_LOAD(1,1,hh,nn);
+			write(","+ aux2);
+			write(","+ aux/aux2);
+			aux2:= (sum(gg in GENERATORS | GEN_NODE(gg)=nn) GEN_CAP_INIT(gg));
+			write(","+ aux/aux2);
+			write("\n");
+		end-do
+		forall(nn in NODES, yy in YEARSH, sea in SEASONS) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			aux:= sum(ff in FLEX_CLASSES) DR_CAP(yy,nn,ff);
+			aux2:= max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) NODE_LOAD(1,yy,hh,nn);
+			write(nn); write(","+yy); write(","+sea);   
+			write(","+ aux); 
+			write(","+ aux2);			
+			write(","+ aux/aux2);
+			!New Peak
+			aux2:= max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) NEW_LOAD(1,yy,hh,nn);
+			write(","+ aux2);
+			write(","+ aux/aux2);
+			aux2:= (sum(tt in TECHNOLOGIES) NODE_TECH_GEN_CAP(yy,nn,tt));
+			write(","+ aux/aux2);
+			write(","+ sum(ff in FLEX_CLASSES) DR_INV(yy,nn,ff));
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	(!fopen(SCENARIO_FOLDER_PATH + "\\flexibilityDR2.csv", F_OUTPUT);
+		write("Year,Node, % Peak\n");
+		forall(nn in NODES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write("0, "); 
+			write(nn);  
+			write(","+ FLEXIBLE(nn));
+			write("\n");
+		end-do
+		forall(nn in NODES, yy in YEARS) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			
+			write(yy); write(","+nn);  
+			write(","+ FLEXIBILITY(yy,nn));
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	!)
+	
+	YEARS_STRING := "0,";
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_flexibility.csv", F_OUTPUT);
+		forall (yy in YEARSH) do YEARS_STRING := YEARS_STRING + yy +",";
+		end-do
+		writeln("Country/Year,"+YEARS_STRING);
+		forall(nn in NODES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write(nn);  
+			write(","+ FLEXIBLE(nn));
+			forall( yy2 in YEARSH) do write(","+ FLEXIBILITY(yy2,nn));
+			end-do
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	YEARS_STRING := "0,";
+		fopen(SCENARIO_FOLDER_PATH + "\\DR_to_total.csv", F_OUTPUT);
+		forall (yy in YEARSH) do YEARS_STRING := YEARS_STRING + yy +",";
+		end-do
+		writeln("Country/Year,"+YEARS_STRING);
+		forall(nn in NODES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write(nn);  
+			write(","+ (sum(ff in FLEX_CLASSES) DR_CAP_INIT(nn,ff))/(MAX_DR_CAP(nn)*(sum(ff in FLEX_CLASSES) DR_CAP_POT(nn,ff) )));
+			forall( yy2 in YEARSH) do 
+			write(","+ (sum(ff in FLEX_CLASSES) DR_CAP(yy2,nn,ff))/(MAX_DR_CAP(nn)*(sum(ff in FLEX_CLASSES) DR_CAP_POT(nn,ff) )));
+			end-do
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	YEARS_STRING := "0,";
+		fopen(SCENARIO_FOLDER_PATH + "\\DR_to_total_class.csv", F_OUTPUT);
+		forall (yy in YEARSH) do YEARS_STRING := YEARS_STRING + yy +",";
+		end-do
+		writeln("Country/Year,,"+YEARS_STRING);
+		forall(ff in FLEX_CLASSES, nn in NODES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write(ff); write(","+nn);
+			if  (DR_CAP_POT(nn,ff) > 0) then
+				write(","+ DR_CAP_INIT(nn,ff)/(MAX_DR_CAP(nn)*(DR_CAP_POT(nn,ff) )));
+				forall( yy2 in YEARSH) do 
+				write(","+  DR_CAP(yy2,nn,ff)/(MAX_DR_CAP(nn)*(DR_CAP_POT(nn,ff) )));
+				end-do
+				else
+					aux:= -1;
+					write(","+ aux);
+					forall( yy2 in YEARSH) do write(","+  aux);
+					end-do
+					
+			end-if
+				
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_Europe.csv", F_OUTPUT);
+		
+		forall (scn in SCENARIOS, yy in YEARSH, hh in HOURS) do
+			EUROPE_LOAD(scn,yy,hh) := sum(nn in NODES) NODE_LOAD(scn,yy,hh,nn);
+			NEW_EUROPE_LOAD(scn,yy,hh) := sum(nn in NODES) NEW_LOAD(scn,yy,hh,nn);
+		end-do
+		
+				
+		write("Scenario,Year, Season, DR Capacity, Peak Load, % Peak, New Peak, % New Peak, % Capacity \n");
+		forall (scn in SCENARIOS, yy in YEARSH, sea in SEASONS) do
+			PEAK_EUROPE(scn,yy,sea) := max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) EUROPE_LOAD(scn,yy,hh);
+			NEW_PEAK_EUROPE(scn,yy,sea) := max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) NEW_EUROPE_LOAD(scn,yy,hh);
+			write(scn); write(","+yy); 	write(","+sea); 
+			aux:=sum(nn in NODES, ff in FLEX_CLASSES) DR_CAP(yy,nn,ff);
+			write(","+aux);
+			write(","+PEAK_EUROPE(scn,yy,sea));
+			write(","+aux/PEAK_EUROPE(scn,yy,sea));
+			write(","+NEW_PEAK_EUROPE(scn,yy,sea));
+			write(","+aux/NEW_PEAK_EUROPE(scn,yy,sea));
+			writeln(","+aux/(sum(nn in NODES, tt in TECHNOLOGIES) NODE_TECH_GEN_CAP(yy,nn,tt)));
+			end-do
+	fclose(F_OUTPUT);
+			
+	
+	
+end-procedure
+
+
+procedure write_summary_dr
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_summary.csv", F_OUTPUT);
+		write("Year,iRES generation, Curtailed generation, iRES inv, Total DR capacity, Total capacity, Emissions, Intercon inv \n");
+		write(",TWh, TWh, GW, GW, GW, MtCO2, GW \n");
+		forall(yy in YEARSH) do
+			write(yy);
+			write("," + strfmt(sum(nn in NODES, tt in TECHNOLOGIES | TECH_INTERMITTENT(tt)) NODE_ANNUAL_TECH_GEN_PROD(yy,nn,tt)/1e6,7,5));
+			write("," + strfmt(sum(nn in NODES, tt in TECHNOLOGIES) NODE_ANNUAL_TECH_GEN_CURT(yy,nn,tt)/1e6,7,5));
+			write("," + strfmt(sum(gg in GENERATORS | TECH_INTERMITTENT(GEN_TECH(gg))) GEN_INV(yy,gg)/1e3,7,5));
+			write("," + strfmt(sum(nn in NODES, ff in FLEX_CLASSES) DR_CAP(yy,nn,ff)/1e3,7,5));
+			write("," + strfmt(sum(nn in NODES, tt in TECHNOLOGIES) NODE_TECH_GEN_CAP(yy,nn,tt)/1e3,7,5));
+			write("," + strfmt(sum(nn in NODES) EMISSIONS(yy,nn)/1e6,7,5));	
+			writeln("," + strfmt(sum(ll in LINES) LINE_INV(yy,ll)/1e3,7,5));
+		end-do
+	fclose(F_OUTPUT);
+	
+	
+end-procedure
+
+
+procedure write_loads
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_loads.csv", F_OUTPUT);
+		forall (yy in YEARSH) do YEARS_STRING := YEARS_STRING + yy +",";
+		end-do
+		writeln("Country/Year,"+YEARS_STRING);
+		forall(nn in NODES) do
+			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
+			write(nn);  
+			forall( yy2 in YEARSH) do write(","+ LOAD_PEAK(yy2,nn));
+			end-do
+			write("\n");
+		end-do
+	
+	fclose(F_OUTPUT);
+
+end-procedure	
+
+
+procedure write_DR_shiftload
+	
+	declarations
+			SCENH: set of integer;
+			YEARSHH: range;
+			NODESH: set of integer;
+			HOURSH: range;	
+	end-declarations
+	
+	SCENH := {1};
+	YEARSHH := YEARSH;
+	NODESH := {8,10,12,16,22};
+	HOURSH := HOURS;
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_shiftload.csv", F_OUTPUT);
+		write("Scenario,Year,Node,Hour, Class,Original Load, Shift Load, Shift_delta, SH_delta, Slack Var\n");
+		forall(scn in SCENARIOS, yy in YEARSH, nn in NODES,  ff in SHIFT_CLASSES, hh in HOURS | nn=14 and yy=2 and scn=2) do
+			write(scn); write("," + yy);  write(","+nn); write(","+hh);
+			write(","+ff);
+			write(","+ DR_CAP(yy,nn,ff)/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh, nn,ff));
+			write(","+ SH_LOAD(scn,yy,hh,nn,ff));
+			aux:=FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh, nn,ff)-SH_LOAD(scn,yy,hh,nn,ff);
+			write(","+ aux); 
+			write(","+ DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff));
+			write(","+ SHCONST(scn,yy,hh,nn,ff));
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+	
+	fopen(SCENARIO_FOLDER_PATH + "\\DR_shiftperday.csv", F_OUTPUT);
+	
+		write("Scenario,Year,Node, Day, Class,Original Daily Load, Shift Load, Shift_delta\n");
+		days := floor(HOURS.size/24);
+		forall(scn in SCENH, yy in YEARSHH, nn in NODESH, dd in 1..days, ff in SHIFT_CLASSES) do
+			write(scn); write("," + yy);  write(","+nn); write(","+dd);
+			write(","+ff);
+			write(","+ sum(hh in 24*(dd-1)+1..24*(dd)) FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh, nn,ff));
+			write(","+ sum(hh in 24*(dd-1)+1..24*(dd)) SH_LOAD(scn,yy,hh,nn,ff));
+			aux:=sum(hh in 24*(dd-1)+1..24*(dd)) (DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff));
+			write(","+ aux); 
+			write("\n");
+		end-do
+	fclose(F_OUTPUT);
+
+end-procedure
+
+procedure print_DR_solution
+	declarations
+		DR_ORDER : array(NODES) of integer;
+		DR_2050 : array(NODES) of real;
+		LOG_ENTRY : string;
+	end-declarations
+	
+	
+	LOG_ENTRY := "\n----------------------------DR Solution Statistics------------------------------\n";	
+	!-----------------------------------------------------------
+	! Print solution statistics
+	LOG_ENTRY += strfmt("Total DR Potential (GW): ",45) + " " + strfmt(1/1e3 * sum(nn in NODES,ff in FLEX_CLASSES) DR_CAP(YEARSH.size,nn,ff),12,4) + "\n";
+	LOG_ENTRY += strfmt("2050 Total Shifted Energy (GWh): ",45) + " " + strfmt(1/(2*1e3*SCENARIOS.size) * sum(scn in SCENARIOS, hh in HOURS, nn in NODES,ff in SHIFT_CLASSES) abs(DR_CAP(YEARSH.size,nn,SHIFT(ff))/LOAD_PEAK(YEARSH.size,nn)*NODE_LOAD(scn,YEARSH.size,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,YEARSH.size,hh,nn,ff)),12,4) + "\n";
+	LOG_ENTRY += strfmt("2050 Total DR Decreased Energy (GWh): ",45) + " " +strfmt(1/(1e3*SCENARIOS.size) * sum(scn in SCENARIOS, hh in HOURS, nn in NODES,ff in CURT_CLASSES) CT_LOAD(scn,YEARSH.size,hh,nn,ff),12,4) + "\n";
+	LOG_ENTRY += strfmt("2050 Total Curtailed RES Energy (GWh): ",45) + " " + strfmt(1/1e3 * sum(nn in NODES,tt in TECHNOLOGIES) NODE_ANNUAL_TECH_GEN_CURT(YEARSH.size,nn,tt),12,4) + "\n";
+	forall (nn in NODES) do
+		DR_2050(nn) := sum(ff in FLEX_CLASSES) DR_CAP(YEARSH.size,nn,ff);
+	end-do
+	qsort(SYS_DOWN, DR_2050, DR_ORDER);
+	LOG_ENTRY += strfmt("2050 Country with highest DR capacity (GW): " + NODE_NAMES(DR_ORDER(1),1) ,15) + " " + DR_2050(DR_ORDER(1)) + "\n";
+	LOG_ENTRY += "-----------------------------------------------------------------------------\n";
+				
+	write(LOG_ENTRY);
+end-procedure
+
+
+
+!***************************************************************************************************************************************************************
