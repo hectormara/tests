@@ -154,17 +154,17 @@ end-procedure
 procedure write_DR_flexibility 
 	
 	fopen(SCENARIO_FOLDER_PATH + "\\DR_operation.csv", F_OUTPUT);
-		write("Country,Year,Scenario,Season,Total Shift, Average Shift, Max, Max Potential\n");
+		write("Country,Year,Scenario,Season,Load Difference, Average Difference, Max\n");
 		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, sea in SEASONS) do
 		!NEW_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)
-			aux := (sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) 1); !Number of hours in scenario scn
+			aux := SEASON_F_L_HOUR(sea,2)-SEASON_F_L_HOUR(sea,1) + 1; !Number of hours in scenario scn
 			aux2:= sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DELTA_LOAD(scn,yy,hh,nn));
 			write(NODE_NAMES(nn,1));
 			write("," + yy); write(","+scn); write(","+sea);
 			write(",",aux2 ); !Total shifted load
 			write(",",aux2 / aux ); !Average increase/decrease of load
 			write("," + (max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DELTA_LOAD(scn,yy,hh,nn)) ) );
-			write("," + (max(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn) ) );
+			
 			write("\n");
 		end-do
 	fclose(F_OUTPUT);
@@ -174,10 +174,10 @@ procedure write_DR_flexibility
 		forall(ff in SHIFT_CLASSES) aux3:= aux3+","+"Shift"+ff;		
 		forall(ff in CURT_CLASSES) aux3:= aux3+","+"Curt"+ff;
 		writeln(aux3);
-		forall(scn in SCENARIOS, yy in YEARSH, nn in NODES, sea in SEASONS) do
+		forall(nn in NODES, scn in SCENARIOS, yy in YEARSH, sea in SEASONS) do
 		!NEW_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)
-			write(scn); !write(NODE_NAMES(nn,1));
-			write("," + yy); write(","+nn); write(","+sea);
+			write(nn); !write(NODE_NAMES(nn,1));
+			write("," + yy); write(","+scn); write(","+sea);
 			forall (ff in SHIFT_CLASSES) do 
 				aux:=SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*sum(hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff)); 
 				write(",",aux ); !Total shift from each class
@@ -200,14 +200,14 @@ procedure write_DR_flexibility
 			write(yy); 
 			aux:=1/SCENARIOS.size*sum(scn in SCENARIOS, sea in SEASONS, nn in NODES) 
 					SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*(
-					sum(ff in SHIFT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff))
+					0.5*sum(ff in SHIFT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff))
 					+sum(ff in CURT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(CT_LOAD(scn,yy,hh,nn,ff))
 						); 
 			write(",",aux ); 
 			
 			aux:=1/SCENARIOS.size*sum(scn in SCENARIOS, sea in SEASONS, nn in NODES) 
 				SEASON_SCALE(SEASON_F_L_HOUR(sea,1))*(
-				1/2*sum(ff in SHIFT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) abs(SH_LOAD(scn,yy,hh,nn,ff))
+				0.5*sum(ff in SHIFT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) SH_LOAD(scn,yy,hh,nn,ff)
 				+sum(ff in CURT_CLASSES, hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) (
 				 DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_CURT(scn,hh,nn,ff) - CT_LOAD(scn,yy,hh,nn,ff) )
 				);
@@ -228,8 +228,8 @@ procedure write_DR_flexibility
 		
 		
 		SCENH := {1,2,3};
-		YEARSHH := {3};
-		NODESH := {10};
+		YEARSHH := {5};
+		NODESH := {12};
 		HOURSH := HOURS;
 		write("Scenario,Year,Node,Hour,Original Load (MW), Inflexible (MW), New Load, Delta, Shifted, Supplied, Supplied2, Curtailable, % Flexible, Wind Production, Solar Production\n");
 		forall(scn in SCENH, yy in YEARSHH, nn in NODESH, hh in HOURS) do
@@ -253,7 +253,7 @@ procedure write_DR_flexibility
 	
 	
 	fopen(SCENARIO_FOLDER_PATH + "\\DR_classes_cap.csv", F_OUTPUT);
-		write("Year,Node, Flexible Class, DR Capacity, % Peak, DR Cap Dual \n");
+		write("Year,Node, Flexible Class, DR Capacity, Peak Ratio (%), DR Cap Dual \n");
 		forall(nn in NODES, ff in FLEX_CLASSES) do
 			!max(ss in SCENARIOS, hh in HOURS) NODE_LOAD(ss,1,hh,nn);
 			write("0, "); write(nn); write("," + ff);  
@@ -501,8 +501,8 @@ procedure write_DR_shiftload
 	HOURSH := HOURS;
 	
 	fopen(SCENARIO_FOLDER_PATH + "\\DR_shiftload.csv", F_OUTPUT);
-		write("Scenario,Year,Node,Hour, Class,Original Load, Shift Load, Shift_delta, SH_delta, Slack Var\n");
-		forall(scn in SCENARIOS, yy in YEARSH, nn in NODES,  ff in SHIFT_CLASSES, hh in HOURS | nn=14 and yy=2 and scn=2) do
+		write("Scenario,Year,Node,Hour, Class,Original Load, Shift Load, Wrong Shift_delta, SH_delta, Slack Var\n");
+		forall(scn in SCENARIOS, yy in YEARSH, nn in NODESH,  ff in SHIFT_CLASSES, hh in HOURS | yy=2 and scn=2) do
 			write(scn); write("," + yy);  write(","+nn); write(","+hh);
 			write(","+ff);
 			write(","+ DR_CAP(yy,nn,ff)/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh, nn,ff));
@@ -522,9 +522,9 @@ procedure write_DR_shiftload
 		forall(scn in SCENH, yy in YEARSHH, nn in NODESH, dd in 1..days, ff in SHIFT_CLASSES) do
 			write(scn); write("," + yy);  write(","+nn); write(","+dd);
 			write(","+ff);
-			write(","+ sum(hh in 24*(dd-1)+1..24*(dd)) FLEXIBILITY(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh, nn,ff));
+			write(","+ sum(hh in 24*(dd-1)+1..24*(dd)) DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh, nn,ff));
 			write(","+ sum(hh in 24*(dd-1)+1..24*(dd)) SH_LOAD(scn,yy,hh,nn,ff));
-			aux:=sum(hh in 24*(dd-1)+1..24*(dd)) (DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff));
+			aux:=0.5*sum(hh in 24*(dd-1)+1..24*(dd)) abs(DR_CAP(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) - SH_LOAD(scn,yy,hh,nn,ff));
 			write(","+ aux); 
 			write("\n");
 		end-do
