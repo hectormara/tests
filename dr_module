@@ -1,0 +1,604 @@
+(!File created by Hector Maranon-Ledesma at IØT NTNU, January 2017
+The file include all the variables and constraints used in the EMPIRE model.
+6.1.0 Specific time windows for each DR group and consecutive days upper bounds type 10
+
+!)
+
+
+
+
+!sample declarations section
+declarations 
+  !---################## DATA DEMAND SIDE MANAGEMENT OR DEMAND RESPONSE 
+	! DSMdata DR
+	RSEASONS			: range;
+	EXTREME_FACTOR		: real; !Factor for DR in extreme seasons
+	EXCOST_FACTOR		: real; !Factor for DR COST in extreme seasons
+	FLEXIBLE			: array(NODES) of real; !Parameter in  [0,1] that gives the amount of loads that are inflexible
+	NUMSHIFT_CLASSES	: integer; ! Number of shiftable load classes (3 by default)
+	NUMCURT_CLASSES	   	: integer; ! Number of curtailable load classes
+	NUMPIECES			: range;
+	NUMPIECES2			: range; ! Subset of NUMPIECES
+	SHIFT_CLASSES		: set of integer;
+	CURT_CLASSES  		: set of integer;
+	FLEX_CLASSES		: set of integer;
+	ALPHA_SHIFT			: array(SCENARIOS, HOURS, NODES, SHIFT_CLASSES) of real; ! Weight of each shiftable class. They sum up to 1 together with the weights ALPHAC_FLEX
+	ALPHA_CURT			: array(SCENARIOS, HOURS, NODES, CURT_CLASSES) of real; ! Weight of each shiftable class. They sum up to 1, last class is curtailable load.
+	SHIFT				: array(SHIFT_CLASSES) of integer;
+	CURT				: array(CURT_CLASSES) of integer;
+	DAYS				: 	range;
+	days_aux			:	integer;
+	days				: integer;
+	
+	WINDOWS				: array(SHIFT_CLASSES) of integer; !Number of shiftable periods of each shiftable group
+	SHIFT_PERIODS		: array(SHIFT_CLASSES,1..13) of integer; ! Hourly intervals for each shiftable class (new start, new end, original start, original end)
+	COST_CURT			: array(YEARS, NODES, CURT_CLASSES) of real; ! Cost of curtailment in €/MWh
+	COST_SHIFT			: array(YEARS, NODES, SHIFT_CLASSES) of real; ! Cost of shifting in €/MWh
+	COST_PIECES			: array(NUMPIECES,1..2) of real; ! Percentage values to get the piecewise cost functions. The real values are in COST_SHIFT and COST_CURT
+	SH_LOW				: array(SCENARIOS, YEARS, HOURS, NODES) of real; ! Lower bound for shiftable loads at a given hour
+	SH_UP				: array(SCENARIOS, YEARS, HOURS, NODES) of real; ! Upper bound for shiftable loads at a given hour
+	DR_INVCOST			: array(YEARS,NODES,FLEX_CLASSES) of real; !Investment costs per MW
+	DR_CAP_INIT			: array(NODES,FLEX_CLASSES) of real;
+	DR_CAP_POT			: array(NODES,FLEX_CLASSES) of real; !Potential DR capacities
+	MAX_DR_CAP			: array(NODES) of real;
+	LOAD_PEAK			: array(YEARS,NODES) of real;
+	DRCOSTS_CFACTOR		: array(NODES) of real;
+	ON_FLEX				: array(FLEX_CLASSES,HOURS) of real; !0/1 Integer to activate/deactivate flexible load
+	
+	DR_EFFICIENCY		: array(YEARS, FLEX_CLASSES)	of real;
+	DR_VOM_COST			: array(YEARS, FLEX_CLASSES)	of real;
+	DR_FOM_COST			: array(YEARS, FLEX_CLASSES)	of real;
+	NUM_DR				: range;
+	TYPE_DR				: array(NUM_DR) of integer;
+	
+	!DSMvars. Do not forget to CREATE the variables!!!!
+	dr_inv		:	array(YEARS, NODES, FLEX_CLASSES)	of mpvar; 	! Amount of DR expansion for a country for a given year
+	dr_cap 		:	array(YEARS, NODES, FLEX_CLASSES)	of mpvar; 	! DR capacity in a given year
+	
+	
+	shift_load	: 	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES)	of mpvar; ! DR DSM Shiftable loads for each FLEXIBLE class
+	!shift_delta :	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES)	of mpvar; ! DR DSM Shiftable loads for each FLEXIBLE class
+	curt_load	: 	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES)	of mpvar; ! DR DSM Curtailable loads for each CURTAILABLE class
+	!curt_delta	: 	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES)	of mpvar; 
+	shift_lambda:	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES, NUMPIECES) of mpvar; !This is used in the piecewise cost function
+	curt_lambda :	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES, NUMPIECES2) of mpvar; !This is used in the piecewise cost function
+	
+	!DSMcons DR constraints
+	ShiftableLoads				:	dynamic array(SCENARIOS, YEARSH, NODES, SHIFT_CLASSES, DAYS, 1..13) of linctr;
+	ShiftPiecesCons				:	array(SCENARIOS, YEARSH, HOURS, NODES, SHIFT_CLASSES) of linctr;
+	CurtPiecesCons				:	array(SCENARIOS, YEARSH, HOURS, NODES, CURT_CLASSES) of linctr;
+	CurtLimit					:	array(SCENARIOS, YEARSH, HOURS, NODES, CURT_CLASSES) of linctr;
+	LambdaShiftPiecesCons		:	array(SCENARIOS, YEARSH, HOURS, NODES, SHIFT_CLASSES) of linctr;
+	LambdaCurtPiecesCons		:	array(SCENARIOS, YEARSH, HOURS, NODES, CURT_CLASSES) of linctr;
+	!CurtailableLoadLimit		:	array(SCENARIOS, YEARSH, HOURS, NODES, CURT_CLASSES) of linctr;
+	!ShiftedTotalCons			:	array(SCENARIOS, YEARSH, HOURS, NODES, SHIFT_CLASSES) of linctr;
+	ShiftedMax					:	array(SCENARIOS, YEARSH, HOURS, NODES, SHIFT_CLASSES) of linctr;
+	ShiftedMax8					:	array(SCENARIOS, YEARSH, HOURS, NODES) of linctr;
+	!CurtailedTotalCons			:	array(SCENARIOS, YEARSH, HOURS, NODES, CURT_CLASSES) of linctr;
+	DRCapDef					:	array(YEARS, NODES, FLEX_CLASSES) of linctr;
+	DRCapLimit					: 	array(YEARS, NODES, FLEX_CLASSES) of linctr;
+	!DRlimited					: 	array(YEARS, NODES) of linctr;
+	
+	
+	!DSM solution containers
+	SH_LOAD	: 	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES)	of real; ! DR DSM Shifted  load for each FLEXIBLE class
+	
+	CT_LOAD	: 	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES)	of real; ! DR DSM Curtailable loads for each CURTAILABLE class
+	CT_CONST: 	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES)	of real; ! DR DSM Curtailable loads for each CURTAILABLE class
+	CT_SUP: 	array(SCENARIOS, YEARS, HOURS, NODES, CURT_CLASSES)	of real;
+	INF_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)		of real; ! TOTAL LOAD AFTER DR DSM
+	NEW_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)		of real; ! TOTAL LOAD AFTER DR DSM
+	DELTA_LOAD:	array(SCENARIOS, YEARS, HOURS, NODES)		of real; ! Gives the increase or decrease of LOAD AFTER DR DSM
+	SH_LAMBDA:	array(SCENARIOS, YEARS, HOURS, NODES, SHIFT_CLASSES, NUMPIECES) of real; !This is used in the piecewise cost function
+	DR_CAP:		array(YEARS,NODES,FLEX_CLASSES) of real;
+	DR_INV:		array(YEARS,NODES,FLEX_CLASSES) of real;
+	DR_LIMIT:	array(YEARS,NODES,FLEX_CLASSES) of real;
+	FLEXIBILITY: array(YEARS, NODES) of real;
+	
+	!Parameters and auxiliars for upper bound constraint DR4
+	aux				:	real;
+	aux_int			:   integer;
+	h5,h6			:   integer;
+	aux_vec			:	array(HOURS) of real;
+	aux_vec2		:	array(HOURS) of real;
+	aux_vec3		:	array(HOURS) of real;
+	aux_vec4		:	array(HOURS) of real;
+	hours_per_season:	integer;
+	aux_sea:			array(HOURS) of real;
+	aux_seap:			array(HOURS) of real;
+	aux_sean:			array(HOURS) of real;
+
+	aux_seaub:			array(HOURS) of real;
+	UPPER_BOUND		:	array(SCENARIOS, YEARSH, HOURS, NODES, SHIFT_CLASSES) of real;
+	
+	
+	DRBOUND: integer; !Sets the type of upper limit to shifted load, options: 1 - 4
+	SHIFTLIMIT = 2.5;  !Factor for case DRBOUND=7
+	UBound_Hours = 3;   !Time window in DRBOUND=8
+	RAMP_FACTOR: real; !Scales the load in DRBOUND=10
+	DR_COSTS_FACTOR=10; !Scales the costs of all DR technologies. Negative for using the input data option
+	aux_seap2:			array(1..UBound_Hours) of real;
+	aux_sean2:			array(1..UBound_Hours) of real;
+	
+end-declarations
+
+DRBOUND := 10;
+RAMP_FACTOR := 2;
+
+if DR_COSTS_FACTOR>0 then 
+	forall (nn in NODES)	DRCOSTS_CFACTOR(nn) := DR_COSTS_FACTOR;
+end-if
+		
+
+
+writeln("Including DR procedures");
+
+include "utility_DR_procedures_DR0.3.mos" !include "..\\src\\xpress-mosel\\utility_DR_procedures_DR0.3.mos"
+
+
+
+
+forall(yy in YEARS, nn in NODES) do
+		LOAD_PEAK(yy,nn) := max(scn in SCENARIOS, hh in HOURS) NODE_LOAD(scn,yy,hh,nn);
+end-do
+!writeln("Min: ", min(yy in YEARS, nn in NODES) LOAD_PEAK(yy,nn));
+
+!Number of days
+days_aux := round(HOURS.size / 24);  !This gives the number of days in all the seasons
+writeln("Days: ",days_aux);
+if days_aux < 1 then DAYS:=1..1;
+else DAYS := 1..days_aux;
+end-if
+
+finalize(DAYS);
+
+!end-procedure
+
+
+
+procedure DR_input
+
+read_DR_mosel_format;
+
+
+finalize(RSEASONS);
+
+!Create DSM variables
+forall (ss in SCENARIOS, yy in YEARSH, nn in NODES, hh in HOURS) do
+	!forall (hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2))do	
+		forall (ff in SHIFT_CLASSES) do
+			create(shift_load(ss, yy, hh, nn, ff));
+
+			forall (ii in NUMPIECES) do 
+				create(shift_lambda(ss, yy, hh, nn, ff, ii));
+			end-do	 
+		end-do
+	!end-do	
+	forall (ff in CURT_CLASSES) do
+		create(curt_load(ss, yy, hh, nn, ff));
+		
+		forall (ii in NUMPIECES2) do 
+				create(curt_lambda(ss, yy, hh, nn, ff, ii));
+		end-do	
+	end-do
+			
+end-do
+
+! ######££££££££££££££££#### DSM DR constraints Dsmcons ###############
+
+
+writeln("DR constraints ...");
+
+
+writeln("Objective function (DRO):...");
+MinTotalExpectedCost:=
+	sum(yy in YEARSH) (1 + DISCOUNT_RATE)^(-LEAP*(yy-1)) * (
+		! Investment costs
+		sum(gg in GENERATORS | exists(gen_inv(yy,gg))) (GEN_INVCOST(yy,gg) * gen_inv(yy,gg)) ! Gen invcost
+		+ sum(ll in LINES) (LINE_INVCOST(yy, ll) * line_inv(yy, ll))						 ! Line invcost
+		+ sum(nn in NODES, ff in FLEX_CLASSES)  (DRCOSTS_CFACTOR(nn)*DR_INVCOST(yy,nn,ff)* dr_inv(yy,nn,ff)) !DR investment. Incremental costs?		
+		+ sum (str in STORAGES | exists(stor_pwr_inv(yy,str))) (
+			STOR_PWR_INVCOST(yy,str) * stor_pwr_inv(yy,str) 
+			+ STOR_ENRG_INVCOST(yy,str) * stor_enrg_inv(yy,str) 
+			)
+		! Operational costs
+		+ 1/LEAP_CRF * ! Scale to get five year operational costs (assuming constant annual operation in this period)
+			sum(scn in SCENARIOS) PROB(scn) * ( ! Expectation
+				 sum(hh in HOURS) ALPHA * SEASON_SCALE(hh) * ( ! Scale to get annual figure
+					sum(gg in GENERATORS | exists(gen_prod(scn, yy, hh, gg))) (
+						GEN_SRMC(yy, gg) * gen_prod(scn, yy, hh, gg) ! Generation costs (Fuel + ETS - OPEX support)
+																				)
+					+ sum(nn in NODES) (NODE_VOLL(yy, nn) * node_lostload(scn, yy, hh, nn) ! Lost load
+										+FLEXIBLE(nn)*NODE_LOAD(scn,yy,hh,nn)*DRCOSTS_CFACTOR(nn)*
+													(sum(ff in SHIFT_CLASSES, pc in NUMPIECES) COST_PIECES(pc,2)*COST_SHIFT(yy,nn,ff)*ALPHA_SHIFT(scn,hh,nn,ff)*
+																				shift_lambda(scn, yy, hh, nn, ff, pc)
+										! DSM Shiftable load cost
+											+ sum(ff in CURT_CLASSES, pc in NUMPIECES2) 2*COST_PIECES(pc,2)*COST_CURT(yy,nn,ff)*ALPHA_CURT(scn,hh,nn,ff)*
+										    									curt_lambda(scn, yy, hh, nn, ff, pc) !The 2 factor is to take into account that the cost is incurred in just 1 hour instead of 2 as in shifting
+										! DSM Curtailable load cost. dsmcosts
+													)!flexible*NODE_LOAD
+										)!NODES
+									)!HOURS
+						 )!SCENARIOS
+	); !YEARSH  
+
+
+!--- Load balance constraint (affected by uncertianty). Note: this formulation does not exclude the possibility of bi-directional flow
+! Eq. 1b
+writeln("Equation Node Balance (DR1):...");
+forall (scn in SCENARIOS, yy in YEARSH,  nn in NODES, hh in HOURS) do
+	NodeLoadBalanceCtr(scn, yy, hh, nn):= 
+		sum(n in NODES | ARCSMAT(nn, n) > 0)(
+			(1 - LINE_LOSS_COEF(ARCSMAT(nn, n))) * arc_flow(scn,yy,hh,n,nn) 
+			- arc_flow(scn, yy, hh, nn, n) 
+		)
+		+ sum(gg in GENERATORS | GEN_NODE(gg)=nn and exists(gen_prod(scn,yy,hh,gg))) gen_prod(scn,yy,hh,gg) 
+		!- sum(pp in GENERATORS | GEN_NODE(pp)=nn and exists(pump_load(ss,yy,hh,pp))) pump_load(scn,yy,hh,pp)
+		+ sum(str in STORAGES | STOR_NODE(str)=nn and exists(stor_dischrg(scn,yy,hh,str))) 
+			(
+				STOR_TECH_DISCHRG_EFFICIENCY(yy,STOR_TECH(str)) * stor_dischrg(scn,yy,hh,str)
+				- stor_chrg(scn,yy,hh,str)
+			)
+		+ node_lostload(scn, yy, hh, nn) 
+		= 
+		! DSM DR
+		NODE_LOAD(scn,yy,hh,nn)  
+		+ sum(ff in SHIFT_CLASSES) ON_FLEX(SHIFT(ff),hh)*(shift_load(scn,yy,hh,nn,ff) - ALPHA_SHIFT(scn,hh,nn,ff)*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn) 
+			+ 0.5*(sum(ii in NUMPIECES) FLEXIBLE(nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff)*shift_lambda(scn,yy,hh,nn,ff,ii)*abs(COST_PIECES(ii,1)))*(1-DR_EFFICIENCY(yy,ff))/DR_EFFICIENCY(yy,ff)) !This term is DR inefficiency losses, 0.5 for each of the 2 hours
+				
+		!+ (sum(ff in SHIFT_CLASSES) (shift_load(scn,yy,hh,nn,ff) + (dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff)- shift_load(scn,yy,hh,nn,ff))*(1-DR_EFFICIENCY(yy,ff))/DR_EFFICIENCY(yy,ff)) !This term is DR inefficiency losses
+		!								- ALPHA_SHIFT(scn,hh,nn,ff)*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn) )
+		+ sum(ff in CURT_CLASSES) ON_FLEX(CURT(ff),hh)*( curt_load(scn,yy,hh,nn,ff)- ALPHA_CURT(scn,hh,nn,ff)*dr_cap(yy,nn,CURT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn) )
+		
+	;
+end-do
+
+(!
+ Constraint to distribute the shiftable loads in each flexibility class
+ Note that as the constraints are defined the load cannot be shifted from
+ one day to another.
+!)
+writeln("Equation Shift Load Balance (DR2):...");
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, dd in DAYS, ww in 1..WINDOWS(ff)) do
+			create(ShiftableLoads(scn,yy,nn,ff,dd,ww));
+			ShiftableLoads(scn,yy,nn,ff,dd,ww) := 
+			sum(hh in 24*(dd-1)+SHIFT_PERIODS(ff,ww)..24*(dd-1)+SHIFT_PERIODS(ff,ww+1)-1)  
+				shift_load(scn,yy,hh,nn,ff) =
+			sum(hh in 24*(dd-1)+SHIFT_PERIODS(ff,ww)..24*(dd-1)+SHIFT_PERIODS(ff,ww+1)-1) 
+				ALPHA_SHIFT(scn,hh,nn,ff)*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn); 
+end-do
+
+
+
+(!
+writeln("Equation Shift Delta (DR3): ");
+!Dummy variables shift_delta free variable, for original load deviation
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS, ff in SHIFT_CLASSES) do
+	ShiftedTotalCons(scn,yy,hh,nn,ff) := shift_delta(scn,yy,hh,nn,ff) = 
+	dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff)- shift_load(scn,yy,hh,nn,ff);
+	
+end-do
+!)
+
+! This constraint fixes an upper bound to load increase.
+
+if DRBOUND > 10 or DRBOUND < 1 then
+	DRBOUND := 10;
+end-if
+writeln("Constraint Shift Peak (DR4): ", DRBOUND);
+
+case DRBOUND of
+	
+	1: do !Calculates the PEAK LOAD during that day and sets it as an upper bound, aux.
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, dd in DAYS) do
+			
+			forall (hh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+				aux_vec(hh) := NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff);
+			
+				aux:= max(hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) aux_vec(hhh);
+				
+								
+				ShiftedMax(scn,yy,hh,nn,ff) := shift_load(scn,yy,hh,nn,ff) <= 
+						dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*aux;
+			end-do
+		end-do
+		end-do
+	
+	2: do !The same upward and down-ward regulation capacity 
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, hh in HOURS) do
+					
+			ShiftedMax(scn,yy,hh,nn,ff) := shift_load(scn,yy,hh,nn,ff) <= 
+					2*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff);
+		end-do
+		end-do
+	
+	
+	
+	3: do !This constraint allows a bit of flexibility even though ALPHA_SHIFT = 0, which does not happen in cases 2 and 3.
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, hh in HOURS) do
+			
+			ShiftedMax(scn,yy,hh,nn,ff) := shift_load(scn,yy,hh,nn,ff) <= 0.005*LOAD_PEAK(yy,nn) + 
+					2*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff);
+		end-do
+	end-do
+	
+	
+	4: do !Average
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, dd in DAYS) do
+			forall (hh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+								
+				ShiftedMax(scn,yy,hh,nn,ff) := 
+					shift_load(scn,yy,hh,nn,ff) <= dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff)+
+					dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)/(SHIFT_PERIODS(ff,1)-SHIFT_PERIODS(ff,2))*sum(hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2))
+					NODE_LOAD(scn,yy,hhh,nn)*ALPHA_SHIFT(scn,hhh,nn,ff);
+			end-do
+		end-do
+	end-do
+	
+	
+	
+	5: do !2*Average. Note in this case the area below the bound and the original load is the same area as the original load, that is the total energy
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, dd in DAYS) do
+			forall (hh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+						
+			ShiftedMax(scn,yy,hh,nn,ff) := shift_load(scn,yy,hh,nn,ff) <= 
+			2/(SHIFT_PERIODS(ff,1)-SHIFT_PERIODS(ff,2))*sum(hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2))
+						dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hhh,nn)*ALPHA_SHIFT(scn,hhh,nn,ff);
+			end-do
+			end-do
+		end-do
+	
+	6: do !Peak limit
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS) do
+		ShiftedMax8(scn,yy,hh,nn) := 
+		sum(ff in FLEX_CLASSES) shift_load(scn,yy,hh,nn,ff) + (1-sum(ff in FLEX_CLASSES) dr_cap(yy,nn,ff)/LOAD_PEAK(yy,nn))*NODE_LOAD(scn,yy,hh,nn) <= 
+									LOAD_PEAK(yy,nn);
+		end-do
+	end-do
+	
+	7: do !Global limit for aggregated shiftable classes
+		writeln("Shift Limit Factor: ", SHIFTLIMIT);
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS) do
+			ShiftedMax8(scn,yy,hh,nn):= sum(ff in SHIFT_CLASSES) shift_load(scn,yy,hh,nn,ff) <= 
+			SHIFTLIMIT*(sum(ff in SHIFT_CLASSES) dr_cap(yy,nn,SHIFT(ff)))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn);
+		end-do
+	end-do
+	
+	
+	8: do !Valley Upper limit: places more room on valley hours
+		writeln("Time window (h): ", UBound_Hours);
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, dd in DAYS) do
+		
+		!Hourly demand ramps
+		forall (hhh in 1+24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			aux_vec(hhh-1) := (ALPHA_SHIFT(scn,hhh,nn,ff)*NODE_LOAD(scn,yy,hhh,nn)-ALPHA_SHIFT(scn,hhh-1,nn,ff)*NODE_LOAD(scn,yy,hhh-1,nn));
+		end-do
+		
+		!Selects the positive and negative increments
+		forall (hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			if (aux_vec(hhh)>0) then 
+				aux_vec2(hhh) := aux_vec(hhh);
+				aux_vec3(hhh) := 0;
+				else 
+				aux_vec2(hhh) := 0;
+				aux_vec3(hhh) := -aux_vec(hhh);
+				end-if
+			
+		end-do
+		
+		!Filling valleys upper bound
+		forall (hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			aux_vec4(hhh) := ALPHA_SHIFT(scn,hhh,nn,ff)*NODE_LOAD(scn,yy,hhh,nn) + 1/(2*UBound_Hours)*sum(h1 in 1..UBound_Hours | h1+hhh-UBound_Hours-1 > 0) aux_vec2(h1+hhh-UBound_Hours-1) !Average Positive previous ramps
+						+1/UBound_Hours*sum(h2 in 1..UBound_Hours | h2+hhh-UBound_Hours-1 > 0) aux_vec3(h2+hhh-UBound_Hours-1) !Average Negative previous ramps, valley
+						+1/UBound_Hours*sum(h3 in 1..UBound_Hours | h3+hhh < 24*(dd-1)+SHIFT_PERIODS(ff,2)) aux_vec2(h3+hhh-1) !Average Positive comming ramps, valley
+						+1/(2*UBound_Hours)*sum(h4 in 1..UBound_Hours | h4+hhh < 24*(dd-1)+SHIFT_PERIODS(ff,2)) aux_vec3(h4+hhh-1); !Average Negative comming ramps
+		end-do
+				
+		
+		forall(hh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			ShiftedMax(scn,yy,hh,nn,ff):= shift_load(scn,yy,hh,nn,ff) <= aux_vec4(hh)*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn);
+		end-do
+		end-do
+		
+	end-do
+	
+	9: do !Double average + Valley upper limit
+		writeln("Time window (h): ", UBound_Hours);
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, dd in DAYS) do
+		
+		aux := 2/(SHIFT_PERIODS(ff,1)-SHIFT_PERIODS(ff,2))*sum(hh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2))
+					NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff);
+		
+		
+		!Hourly demand ramps
+		forall (hhh in 1+24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			aux_vec(hhh-1) := (ALPHA_SHIFT(scn,hhh,nn,ff)*NODE_LOAD(scn,yy,hhh,nn)-ALPHA_SHIFT(scn,hhh-1,nn,ff)*NODE_LOAD(scn,yy,hhh-1,nn));
+		end-do
+		
+		!Selects the positive and negative increments
+		forall (hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			if (aux_vec(hhh)>0) then 
+				aux_vec2(hhh) := aux_vec(hhh);
+				aux_vec3(hhh) := 0;
+				else 
+				aux_vec2(hhh) := 0;
+				aux_vec3(hhh) := -aux_vec(hhh);
+				end-if
+			
+		end-do
+		
+		!Filling valleys upper bound
+		forall (hhh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			aux_vec4(hhh) := maxlist(
+						NODE_LOAD(scn,yy,hhh,nn)*ALPHA_SHIFT(scn,hhh,nn,ff)
+						+ 1/(2*UBound_Hours)*sum(h1 in 1..UBound_Hours | h1+hhh-UBound_Hours-1 > 0) aux_vec2(h1+hhh-UBound_Hours-1) !Average Positive previous ramps
+						+1/UBound_Hours*sum(h2 in 1..UBound_Hours | h2+hhh-UBound_Hours-1 > 0) aux_vec3(h2+hhh-UBound_Hours-1) !Average Negative previous ramps, valley
+						+1/UBound_Hours*sum(h3 in 1..UBound_Hours | h3+hhh < 24*(dd-1)+SHIFT_PERIODS(ff,2)) aux_vec2(h3+hhh-1) !Average Positive comming ramps, valley
+						+1/(2*UBound_Hours)*sum(h4 in 1..UBound_Hours | h4+hhh < 24*(dd-1)+SHIFT_PERIODS(ff,2)) aux_vec3(h4+hhh-1),
+						aux); !Average Negative comming ramps
+		end-do
+				
+		
+		forall( hh in 24*(dd-1)+SHIFT_PERIODS(ff,1)..24*(dd-1)+SHIFT_PERIODS(ff,2)) do
+			ShiftedMax(scn,yy,hh,nn,ff):= shift_load(scn,yy,hh,nn,ff) <= aux_vec4(hh)*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn);
+		end-do
+		
+		end-do
+		end-do
+		
+	10: do !Ramps Doubled Load
+		
+		
+		
+		writeln("Ramp factor: ",RAMP_FACTOR);
+		writeln("Time window (h): ", UBound_Hours);
+		forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, ff in SHIFT_CLASSES, sea in SEASONS) do
+		
+		hours_per_season := SEASON_F_L_HOUR(sea,2)-SEASON_F_L_HOUR(sea,1)+1;
+		!Hourly demand ramps
+		forall (hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) do
+			h5 := SEASON_F_L_HOUR(sea,1) + (hh+1-SEASON_F_L_HOUR(sea,1)) mod (hours_per_season); 
+			aux_sea(hh) := RAMP_FACTOR*(ALPHA_SHIFT(scn,h5,nn,ff)*NODE_LOAD(scn,yy,h5,nn)-ALPHA_SHIFT(scn,hh,nn,ff)*NODE_LOAD(scn,yy,hh,nn));
+		end-do
+		
+		
+		!Selects the positive and negative increments
+		forall (hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) do
+			if (aux_sea(hh)>0) then 
+			
+				aux_seap(hh) := aux_sea(hh);
+				
+				aux_sean(hh) := 0;
+								
+				else
+				aux_seap(hh) := 0;
+				
+				aux_sean(hh) := -aux_sea(hh);
+				
+				end-if
+			
+		end-do
+		
+				
+		!Filling valleys upper bound
+		forall (hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) do
+			!h5:= SEASON_F_L_HOUR(sea,1) + (SEASON_F_L_HOUR(sea,2) - UBound_Hours + (hh - SEASON_F_L_HOUR(sea,1)) mod SEASON_F_L_HOUR(sea,1)) mod SEASON_F_L_HOUR(sea,2);
+			!h6:= SEASON_F_L_HOUR(sea,1) + (hh+UBound_Hours-1) mod SEASON_F_L_HOUR(sea,2);
+			
+			forall(kk in 1..UBound_Hours) do
+				aux_sean2(kk):= aux_sean(SEASON_F_L_HOUR(sea,2)-UBound_Hours+kk);
+			end-do
+			forall(kk in 1..UBound_Hours) do
+				aux_seap2(kk):= aux_seap(SEASON_F_L_HOUR(sea,1)+kk-1);
+			end-do
+			
+			
+			aux_seaub(hh) := RAMP_FACTOR*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff) 
+						+sum(h2 in maxlist(hh-UBound_Hours, SEASON_F_L_HOUR(sea,1))..hh-1) aux_sean(h2) ! Negative previous ramps, valley
+						+sum(h3 in hh..minlist(hh+UBound_Hours-1,SEASON_F_L_HOUR(sea,2)) ) aux_seap(h3) ! Positive comming ramps, valley
+						+sum(h2 in 1..abs(SEASON_F_L_HOUR(sea,1)-hh+UBound_Hours) | hh-UBound_Hours<SEASON_F_L_HOUR(sea,1)) aux_sean2(4-h2) !loop
+						+sum(h3 in 1..abs(-SEASON_F_L_HOUR(sea,2)+hh+UBound_Hours-1)| hh+UBound_Hours-1>SEASON_F_L_HOUR(sea,2)) aux_seap2(h3); !loop
+									
+		end-do
+				
+		
+		forall( hh in SEASON_F_L_HOUR(sea,1)..SEASON_F_L_HOUR(sea,2)) do
+			ShiftedMax(scn,yy,hh,nn,ff):= shift_load(scn,yy,hh,nn,ff) <= aux_seaub(hh)*dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn);
+		end-do
+		
+		end-do
+		
+	
+	
+	end-do
+	
+	
+
+		
+end-case
+
+
+writeln("Equation Shift in Pieces (DR5): ");
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS, ff in SHIFT_CLASSES) do
+	ShiftPiecesCons(scn,yy,hh,nn,ff) := FLEXIBLE(nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff)*
+				(sum(ii in NUMPIECES) shift_lambda(scn,yy,hh,nn,ff,ii)*COST_PIECES(ii,1))
+		= shift_load(scn,yy,hh,nn,ff) - dr_cap(yy,nn,SHIFT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_SHIFT(scn,hh,nn,ff);
+end-do
+
+(!
+writeln("Equation Curtail Delta (DR6): ");
+!Dummy variables curt_delta >= 0, for original load deviation
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS, ff in CURT_CLASSES) do
+	CurtailedTotalCons(scn,yy,hh,nn,ff) := curt_delta(scn,yy,hh,nn,ff) = 
+	dr_cap(yy,nn,CURT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_CURT(scn,hh,nn,ff)- curt_load(scn,yy,hh,nn,ff);
+end-do
+!)
+
+writeln("Equation Curtail in Pieces (DR7): ");
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS, ff in CURT_CLASSES) do
+	CurtPiecesCons(scn,yy,hh,nn,ff) := (sum(ii in NUMPIECES2) (curt_lambda(scn,yy,hh,nn,ff,ii)*  
+		COST_PIECES(ii,1)) )*FLEXIBLE(nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_CURT(scn,hh,nn,ff)
+		= dr_cap(yy,nn,CURT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_CURT(scn,hh,nn,ff)- curt_load(scn,yy,hh,nn,ff);
+	
+	CurtLimit(scn,yy,hh,nn,ff) := curt_load(scn,yy,hh,nn,ff) <= dr_cap(yy,nn,CURT(ff))/LOAD_PEAK(yy,nn)*NODE_LOAD(scn,yy,hh,nn)*ALPHA_CURT(scn,hh,nn,ff);
+end-do
+
+
+writeln("Equation Shift Lambdas (DR8): ");
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS, ff in SHIFT_CLASSES) do
+	LambdaShiftPiecesCons(scn,yy,hh,nn,ff) := sum(ii in NUMPIECES) shift_lambda(scn,yy,hh,nn,ff,ii)
+			= 1;
+end-do
+
+writeln("Equation Curt Lambdas (DR9): ");
+forall(yy in YEARSH, nn in NODES, scn in SCENARIOS, hh in HOURS, ff in CURT_CLASSES) do
+	LambdaCurtPiecesCons(scn,yy,hh,nn,ff) := sum(ii in NUMPIECES2) curt_lambda(scn,yy,hh,nn,ff,ii)
+			= 1; 
+end-do
+
+writeln("Equation DR capacity (DR10): ");
+!DR capacity definitions
+forall(yy in YEARSH, nn in NODES, ff in FLEX_CLASSES) do
+	DRCapDef(yy,nn,ff) := sum(y in 1..yy) dr_inv(y,nn,ff) 
+						+ DR_CAP_INIT(nn,ff) 
+						= dr_cap(yy,nn,ff);
+						(!if (ff=7 and yy>2) then 
+						DRCapDef(yy,nn,ff) := DR_CAP_INIT(nn,ff) = dr_cap(yy,nn,ff);
+						DRlimited(yy,nn):= dr_inv(yy,nn,ff)=0; 
+						end-if!)
+end-do
+
+writeln("Equation DR limits (DR11): ");
+!Upper limit to total investments. Sensitivity on the MAX_DR_CAP
+forall(yy in YEARSH, nn in NODES, ff in FLEX_CLASSES) do
+	DRCapLimit(yy,nn,ff) := dr_cap(yy,nn,ff) <= MAX_DR_CAP(nn)*DR_CAP_POT(nn,ff); 
+	if ff=7 then DRCapLimit(yy,nn,ff) := dr_cap(yy,nn,ff) <= 0.1*DR_CAP_POT(nn,ff); end-if
+	!if ff=7 then DRCapLimit(yy,nn,ff) := dr_cap(yy,nn,ff) <= 0.1*DR_CAP_POT(nn,ff); end-if
+end-do
+
+
+
+
+writeln("End definitions");
+
+
+
+
+end-procedure
+
+procedure DR_module_start
+	!DR_initializations
+	DR_input;
+	print_DR_input;
+end-procedure
+
+
+procedure DR_output
+	save_DR_data;
+	write_DR_output;
+	print_DR_solution;
+	
+
+end-procedure
+
+
